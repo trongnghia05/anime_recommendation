@@ -67,8 +67,8 @@ Install required packages:
 python3 -m venv .venv
 source .venv/bin/activate
 apk update
-apk add make automake gcc g++ subversion python3-dev
-pip3 install numpy venv-pack flask
+apk add make automake gcc g++ subversion python3-dev nano
+pip3 install numpy venv-pack
 ```
 
 > [!WARNING]
@@ -102,9 +102,9 @@ exit
 
 Run python, with `elasticsearch` is optional:
 ```bash
-docker exec -it /bin/bash
-source .venv/bin/bash
-spark/bin/spark-submit --master spark://spark-master:7077 --jars elasticsearch-hadoop-7.15.1.jar --driver-class-path elasticsearch-hadoop-7.15.1.jar src/als_anime.py
+docker exec -it spark-master /bin/bash
+source .venv/bin/activate
+spark/bin/spark-submit --master spark://spark-master:7077 --jars elasticsearch-hadoop-7.15.1.jar --driver-class-path elasticsearch-hadoop-7.15.1.jar --conf spark.pyspark.python=/usr/bin/python3.7 --conf spark.pyspark.driver.python=/usr/bin/python3.7 src/als_anime.py
 ```
 
 > [!NOTE]

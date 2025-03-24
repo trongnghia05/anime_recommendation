@@ -172,3 +172,7 @@ cython_debug/
 
 archive/
 # data/ # Temporary enable for testing. Remove before commiting
+
+
+#
+app/frontend/node_modules

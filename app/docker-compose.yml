@@ -163,42 +163,185 @@ services:
     depends_on:
       - elasticsearch
 
-  airflow-webserver:
-    image: apache/airflow:2.0.0
-    container_name: airflow-webserver
+#  airflow-webserver:
+#    image: apache/airflow:2.0.0
+#    container_name: airflow-webserver
+#    environment:
+#      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
+#      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+#    ports:
+#      - "8082:8080"
+#    volumes:
+#      - ./airflow-dags:/opt/airflow/dags
+#    networks:
+#      - es-net
+#
+#  airflow-scheduler:
+#    image: apache/airflow:2.0.0
+#    container_name: airflow-scheduler
+#    command: scheduler
+#    environment:
+#      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
+#      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+#    volumes:
+#      - ./airflow-dags:/opt/airflow/dags
+#    networks:
+#      - es-net
+#
+#  airflow-worker:
+#    image: apache/airflow:2.0.0
+#    container_name: airflow-worker
+#    command: worker
+#    environment:
+#      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
+#      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+#    volumes:
+#      - ./airflow-dags:/opt/airflow/dags
+#    networks:
+#      - es-net
+  postgres:
+    image: postgres:13
+    container_name: airflow-postgres
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-    ports:
-      - "8081:8080"
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
     volumes:
-      - ./airflow-dags:/opt/airflow/dags
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
+      interval: 5s
+      retries: 5
+    restart: always
+    networks:
+      - es-net
+
+  redis:
+    image: redis:latest
+    container_name: airflow-redis
+    expose:
+      - 6379
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      retries: 5
+    restart: always
+    networks:
+      - es-net
+
+  airflow-webserver:
+    build: ./airflow
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8086:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      - redis
+      - postgres
+      - airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
     networks:
       - es-net
 
   airflow-scheduler:
-    image: apache/airflow:2.0.0
+    build: ./airflow
     container_name: airflow-scheduler
     command: scheduler
+    restart: always
+    depends_on:
+      - redis
+      - postgres
+      - airflow-init
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
     volumes:
-      - ./airflow-dags:/opt/airflow/dags
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
     networks:
       - es-net
 
   airflow-worker:
-    image: apache/airflow:2.0.0
+    build: ./airflow
     container_name: airflow-worker
-    command: worker
+    command: celery worker
+    restart: always
+    depends_on:
+      - redis
+      - postgres
+      - airflow-init
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////root/airflow/airflow.db
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
     volumes:
-      - ./airflow-dags:/opt/airflow/dags
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
     networks:
       - es-net
+
+  airflow-init:
+    build: ./airflow
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /sources/logs /sources/dags /sources/plugins
+        airflow db init
+        airflow users create \
+            --username admin \
+            --password admin \
+            --firstname Admin \
+            --lastname Admin \
+            --role Admin \
+            --email admin@example.com
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://airflow:airflow@postgres/airflow
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=''
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+    volumes:
+      - ./airflow:/sources
+    networks:
+      - es-net
+
 
   animetv-frontend-dev:
       build:
@@ -224,7 +367,7 @@ volumes:
   hadoop_datanode1:
   hadoop_datanode2:
   hadoop_datanode3:
-
+  postgres-db-volume:
 
 networks:
   es-net:

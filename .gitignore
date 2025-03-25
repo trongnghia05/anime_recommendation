@@ -129,6 +129,7 @@ celerybeat.pid
 
 # Environments
 *.env
+!app/airflow/.env
 *.venv
 env/
 venv/
@@ -176,3 +177,4 @@ archive/
 
 #
 app/frontend/node_modules
+app/airflow/logs/*

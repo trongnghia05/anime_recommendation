@@ -7,13 +7,12 @@ const DetailPage = ({ anime, navigateTo, userId }) => {
   const [similarAnimes, setSimilarAnimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Giả lập gọi API chi tiết anime
+  // Giả lập gọi API chi tiết anime và fetch đề xuất từ API thật
   useEffect(() => {
     const fetchAnimeDetails = async () => {
       try {
         // Dữ liệu giả lập - trong thực tế sẽ nhận từ API
         let details;
-        let similar;
 
         if (!anime) {
           // Default anime nếu không có anime được chọn
@@ -29,29 +28,6 @@ const DetailPage = ({ anime, navigateTo, userId }) => {
             genres: ['Hài hước', 'Đời thường', 'Học đường'],
             studio: 'Shin-Ei Animation'
           };
-
-          similar = [
-            {
-              id: 'similar-1',
-              title: 'Doraemon',
-              image: FALLBACK_IMAGE
-            },
-            {
-              id: 'similar-2',
-              title: 'Chibi Maruko-chan',
-              image: FALLBACK_IMAGE
-            },
-            {
-              id: 'similar-3',
-              title: 'Atashin\'chi',
-              image: FALLBACK_IMAGE
-            },
-            {
-              id: 'similar-4',
-              title: 'Kiteretsu',
-              image: FALLBACK_IMAGE
-            }
-          ];
         } else {
           // Tạo thông tin dựa trên anime được chọn
           details = {
@@ -66,8 +42,37 @@ const DetailPage = ({ anime, navigateTo, userId }) => {
             genres: ['Hài hước', 'Đời thường', 'Học đường'],
             studio: 'Shin-Ei Animation'
           };
+        }
 
-          similar = [
+        setAnimeDetails(details);
+
+        // Fetch đề xuất anime từ API thật
+        try {
+          const userIdToFetch = userId || 100; // Sử dụng ID người dùng được truyền hoặc mặc định là 100
+          const response = await fetch(`http://localhost:8000/recommend/${userIdToFetch}`);
+
+          if (!response.ok) {
+            throw new Error('Không thể tải dữ liệu đề xuất');
+          }
+
+          const recommendData = await response.json();
+          console.log(recommendData)
+          // Chuyển đổi dữ liệu từ API thành định dạng tương thích với component
+          const similar = recommendData.recommendations.map(item => ({
+            id: item.anime_id.toString(),
+            title: item.name,
+            image: FALLBACK_IMAGE,
+            // rank: item.rank,
+            // score: item.score,
+            // prediction: item.prediction,
+            // explanation: item.explanation
+          }));
+
+          setSimilarAnimes(similar);
+        } catch (error) {
+          console.error("Lỗi khi tải đề xuất anime:", error);
+          // Sử dụng dữ liệu giả lập nếu API không hoạt động
+          const similar = [
             {
               id: 'similar-1',
               title: 'Doraemon',
@@ -89,10 +94,9 @@ const DetailPage = ({ anime, navigateTo, userId }) => {
               image: FALLBACK_IMAGE
             }
           ];
+          setSimilarAnimes(similar);
         }
 
-        setAnimeDetails(details);
-        setSimilarAnimes(similar);
         setLoading(false);
       } catch (error) {
         console.error("Lỗi khi tải thông tin anime:", error);
@@ -181,7 +185,17 @@ const DetailPage = ({ anime, navigateTo, userId }) => {
         <h2 className="text-xl font-bold mb-4">Anime tương tự</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {similarAnimes.map(anime => (
-            <AnimeCard key={anime.id} anime={anime} navigateTo={navigateTo} />
+            <div key={anime.id} className="anime-card-container">
+              <AnimeCard key={anime.id} anime={anime} navigateTo={navigateTo} />
+              {anime.rank && (
+                <div className="mt-1 text-xs">
+                  <span className="text-yellow-600">⭐ {anime.score}</span>
+                  {anime.prediction && (
+                    <span className="ml-2 text-blue-600">{Math.round(anime.prediction)}% phù hợp</span>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>

@@ -177,4 +177,10 @@ archive/
 
 #
 app/frontend/node_modules
-app/airflow/logs/*
+app/airflow/*
+!app/airflow/data
+!app/airflow/dags
+!app/airflow/src
+!app/airflow/webserver_config.py
+app/mlflow/*
+!app/mlflow/.gitkeep

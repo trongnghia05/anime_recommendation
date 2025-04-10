@@ -119,38 +119,63 @@ const HomePage = ({ navigateTo, userId }) => {
           }
         ]);
 
-        setRecommended([
-          {
-            id: 'recommended-1',
-            title: 'Shin: Phiêu lưu ở 1',
-            image: FALLBACK_IMAGE,
-            matchPercentage: 99
-          },
-          {
-            id: 'recommended-2',
-            title: 'Shin: Phiêu lưu ở 2',
-            image: FALLBACK_IMAGE,
-            matchPercentage: 98
-          },
-          {
-            id: 'recommended-3',
-            title: 'Shin: Phiêu lưu ở 3',
-            image: FALLBACK_IMAGE,
-            matchPercentage: 97
-          },
-          {
-            id: 'recommended-4',
-            title: 'Shin: Phiêu lưu ở 4',
-            image: FALLBACK_IMAGE,
-            matchPercentage: 96
-          },
-          {
-            id: 'recommended-5',
-            title: 'Shin: Phiêu lưu ở 5',
-            image: FALLBACK_IMAGE,
-            matchPercentage: 95
+        // Fetch đề xuất anime từ API thật
+        try {
+          const userIdToFetch = userId || 100; // Sử dụng ID người dùng được truyền hoặc mặc định là 100
+          const response = await fetch(`http://localhost:8000/recommend/${userIdToFetch}`);
+
+          if (!response.ok) {
+            throw new Error('Không thể tải dữ liệu đề xuất');
           }
-        ]);
+
+          const recommendData = await response.json();
+
+          const recommendedAnimes = recommendData.recommendations.map(item => ({
+            id: item.anime_id.toString(),
+            title: item.name,
+            image: FALLBACK_IMAGE,
+            score: item.score,
+            matchPercentage: Math.round(item.prediction),
+            explanation: item.explanation
+          }));
+
+          setRecommended(recommendedAnimes);
+        } catch (error) {
+          console.error("Lỗi khi tải đề xuất anime:", error);
+          // Nếu không lấy được dữ liệu từ API, sử dụng dữ liệu giả lập
+          setRecommended([
+            {
+              id: 'recommended-1',
+              title: 'Shin: Phiêu lưu ở 1',
+              image: FALLBACK_IMAGE,
+              matchPercentage: 99
+            },
+            {
+              id: 'recommended-2',
+              title: 'Shin: Phiêu lưu ở 2',
+              image: FALLBACK_IMAGE,
+              matchPercentage: 98
+            },
+            {
+              id: 'recommended-3',
+              title: 'Shin: Phiêu lưu ở 3',
+              image: FALLBACK_IMAGE,
+              matchPercentage: 97
+            },
+            {
+              id: 'recommended-4',
+              title: 'Shin: Phiêu lưu ở 4',
+              image: FALLBACK_IMAGE,
+              matchPercentage: 96
+            },
+            {
+              id: 'recommended-5',
+              title: 'Shin: Phiêu lưu ở 5',
+              image: FALLBACK_IMAGE,
+              matchPercentage: 95
+            }
+          ]);
+        }
 
         setLoading(false);
       } catch (error) {
@@ -187,9 +212,10 @@ const HomePage = ({ navigateTo, userId }) => {
         icon="⭐"
       />
       <AnimeSection
-        title="Đề xuất cho bạn"
+        title="Có thể bạn sẽ thích"
         animes={recommended}
         navigateTo={navigateTo}
+        icon="👍"
       />
     </div>
   );

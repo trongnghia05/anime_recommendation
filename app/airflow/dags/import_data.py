@@ -36,7 +36,7 @@ def create_anime_tables(**kwargs):
 
     conn = psycopg2.connect(
         host="postgres",
-        database="airflow",
+        database="ptpm",
         user="airflow",
         password="airflow",
         port=5432
@@ -97,14 +97,38 @@ def create_anime_tables(**kwargs):
     );
     '''
 
+    # Create synopsis table SQL with column names properly quoted
+    create_synopsis_table_sql = '''
+        CREATE TABLE IF NOT EXISTS anime_with_synopsis (
+            "MAL_ID" INTEGER PRIMARY KEY,
+            "Name" TEXT,
+            "Score" FLOAT,
+            "Genres" TEXT,
+            "sypnopsis" TEXT
+        );
+    '''
+
+    create_rating_table_sql = '''
+        CREATE TABLE IF NOT EXISTS rating_complete (
+            "id" SERIAL PRIMARY KEY,
+            "user_id" INTEGER,
+            "anime_id" INTEGER,
+            "rating" INTEGER
+        );
+    '''
+
     # Drop tables if they exist
     cursor.execute("DROP TABLE IF EXISTS anime;")
     cursor.execute("DROP TABLE IF EXISTS animelist;")
+    cursor.execute("DROP TABLE IF EXISTS anime_with_synopsis;")
+    cursor.execute("DROP TABLE IF EXISTS rating_complete;")
     conn.commit()
 
     # Create tables
     cursor.execute(create_anime_table_sql)
     cursor.execute(create_animelist_table_sql)
+    cursor.execute(create_synopsis_table_sql)
+    cursor.execute(create_rating_table_sql)
     conn.commit()
 
     cursor.close()
@@ -199,7 +223,7 @@ def process_and_load_anime_data(**kwargs):
     # Connect to PostgreSQL
     conn = psycopg2.connect(
         host="postgres",
-        database="airflow",
+        database="ptpm",
         user="airflow",
         password="airflow",
         port=5432
@@ -239,8 +263,6 @@ def process_and_load_anime_data(**kwargs):
     conn.close()
 
     return f"Successfully loaded {len(df)} anime records"
-
-
 def process_and_load_animelist_data(**kwargs):
     """Process animelist CSV and load into database"""
     import psycopg2
@@ -271,7 +293,7 @@ def process_and_load_animelist_data(**kwargs):
     # Connect to PostgreSQL
     conn = psycopg2.connect(
         host="postgres",
-        database="airflow",
+        database="ptpm",
         user="airflow",
         password="airflow",
         port=5432
@@ -316,7 +338,148 @@ def process_and_load_animelist_data(**kwargs):
     conn.close()
 
     return f"Successfully loaded {len(df)} animelist records"
+def process_and_load_synopsis_data(**kwargs):
+    """Xử lý và tải dữ liệu từ anime_with_synopsis.csv vào database"""
+    import psycopg2
+    from psycopg2.extras import execute_values
 
+    # Đường dẫn đến file CSV trong thư mục data
+    csv_path = '/opt/airflow/data/movies/anime_with_synopsis.csv'
+
+    # Đọc file CSV
+    df = pd.read_csv(csv_path, encoding='utf-8')
+
+    # In tên cột để debug
+    print("Tên cột gốc trong CSV synopsis:", df.columns.tolist())
+
+    # Clean dữ liệu - Thay thế giá trị NaN bằng giá trị mặc định phù hợp
+    df = df.fillna({
+        'MAL_ID': 0,
+        'Name': '',
+        'Score': 0,
+        'Genres': '',
+        'sypnopsis': ''
+    })
+
+    # Chuyển đổi kiểu dữ liệu
+    df['MAL_ID'] = pd.to_numeric(df['MAL_ID'], errors='coerce').fillna(0).astype(int)
+    df['Score'] = pd.to_numeric(df['Score'], errors='coerce').fillna(0)
+
+    # Kết nối đến PostgreSQL
+    conn = psycopg2.connect(
+        host="postgres",
+        database="ptpm",
+        user="airflow",
+        password="airflow",
+        port=5432
+    )
+
+    cursor = conn.cursor()
+
+    # Xóa dữ liệu trong bảng để tránh trùng lặp
+    cursor.execute('TRUNCATE TABLE anime_with_synopsis')
+
+    # Lấy tên cột từ dataframe
+    columns = df.columns.tolist()
+
+    # Tạo chuỗi placeholder cho câu truy vấn SQL
+    placeholders = ', '.join(['%s'] * len(columns))
+
+    # Xây dựng phần tên cột của câu truy vấn SQL
+    column_names = ', '.join([f'"{col}"' for col in columns])
+
+    # Xây dựng câu lệnh INSERT
+    insert_stmt = f"""
+    INSERT INTO anime_with_synopsis ({column_names})
+    VALUES ({placeholders})
+    """
+
+    # Chuyển đổi dataframe thành danh sách các tuple để chèn vào
+    records = [tuple(row) for row in df.values]
+
+    # Thực hiện chèn hàng loạt
+    cursor.executemany(insert_stmt, records)
+
+    # Commit giao dịch
+    conn.commit()
+
+    # Đóng kết nối
+    cursor.close()
+    conn.close()
+
+    return f"Đã tải thành công {len(df)} bản ghi anime_with_synopsis"
+def process_and_load_rating_data(**kwargs):
+    """Xử lý và tải dữ liệu từ rating_complete.csv vào database"""
+    import psycopg2
+    from psycopg2.extras import execute_values
+
+    # Đường dẫn đến file CSV trong thư mục data
+    csv_path = '/opt/airflow/data/ratings/rating_complete.csv'
+
+    # Đọc file CSV
+    df = pd.read_csv(csv_path, encoding='utf-8')
+
+    # In tên cột để debug
+    print("Tên cột gốc trong CSV rating:", df.columns.tolist())
+
+    # Clean dữ liệu - Thay thế giá trị NaN bằng giá trị mặc định phù hợp
+    df = df.fillna({
+        'user_id': 0,
+        'anime_id': 0,
+        'rating': 0
+    })
+
+    # Chuyển đổi tất cả cột thành số nguyên
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
+    # Kết nối đến PostgreSQL
+    conn = psycopg2.connect(
+        host="postgres",
+        database="ptpm",
+        user="airflow",
+        password="airflow",
+        port=5432
+    )
+
+    cursor = conn.cursor()
+
+    # Xóa dữ liệu trong bảng để tránh trùng lặp
+    cursor.execute('TRUNCATE TABLE rating_complete')
+
+    # Lấy tên cột từ dataframe
+    columns = df.columns.tolist()
+
+    # Tạo chuỗi placeholder cho câu truy vấn SQL
+    placeholders = ', '.join(['%s'] * len(columns))
+
+    # Xây dựng phần tên cột của câu truy vấn SQL
+    column_names = ', '.join([f'"{col}"' for col in columns])
+
+    # Xây dựng câu lệnh INSERT
+    insert_stmt = f"""
+    INSERT INTO rating_complete ({column_names})
+    VALUES ({placeholders})
+    """
+
+    # Chuyển đổi dataframe thành danh sách các tuple
+    records = []
+    for i, row in df.iterrows():
+        # Chuyển đổi mỗi giá trị cột thành số nguyên Python
+        native_row = tuple(int(val) for val in row)
+        records.append(native_row)
+
+    # Thực hiện chèn hàng loạt
+    cursor.executemany(insert_stmt, records)
+
+    # Commit giao dịch
+    conn.commit()
+
+    # Đóng kết nối
+    cursor.close()
+    conn.close()
+
+    return f"Đã tải thành công {len(df)} bản ghi rating_complete"
 
 # Task to process and load the anime data
 process_load_anime = PythonOperator(
@@ -334,6 +497,19 @@ process_load_animelist = PythonOperator(
     dag=dag,
 )
 
+process_load_synopsis = PythonOperator(
+    task_id='process_and_load_synopsis_data',
+    python_callable=process_and_load_synopsis_data,
+    provide_context=True,
+    dag=dag,
+)
+
+process_load_rating = PythonOperator(
+    task_id='process_and_load_rating_data',
+    python_callable=process_and_load_rating_data,
+    provide_context=True,
+    dag=dag,
+)
+
 # Define dependencies
-create_tables_task >> process_load_anime
-create_tables_task >> process_load_animelist
+create_tables_task >> [process_load_anime, process_load_animelist, process_load_synopsis, process_load_rating]

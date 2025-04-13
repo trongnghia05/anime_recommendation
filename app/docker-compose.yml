@@ -36,7 +36,7 @@ services:
       SERVICE_PRECONDITION: "namenode:9870"
     env_file:
       - ./hadoop.env
-  
+
   datanode3:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: datanode3
@@ -53,7 +53,7 @@ services:
     container_name: spark-master
     depends_on:
       - namenode
-      - datanode1 
+      - datanode1
       - datanode2
       - datanode3
     ports:
@@ -151,6 +151,8 @@ services:
       - xpack.security.enabled=false
       - "discovery.type=single-node"
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    networks:
+      - es-net
 
   kibana:
     image: docker.elastic.co/kibana/kibana:7.15.1
@@ -162,6 +164,8 @@ services:
       ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
     depends_on:
       - elasticsearch
+    networks:
+      - es-net
 
 #  airflow-webserver:
 #    image: apache/airflow:2.0.0

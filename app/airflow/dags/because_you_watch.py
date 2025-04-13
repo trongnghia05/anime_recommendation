@@ -52,7 +52,7 @@ import psycopg2
 
 conn = psycopg2.connect(
     host="postgres",
-    database="airflow",
+    database="ptpm",
     user="airflow",
     password="airflow",
     port=5432
@@ -209,6 +209,7 @@ def notify_api_servers(**kwargs):
                 reload_url,
                 json={
                     "model_name": model_result["model_name"],
+                    "model_type": 0,
                     "source": "airflow",
                     "timestamp": datetime.now().isoformat()
                 },

@@ -36,7 +36,7 @@ services:
       SERVICE_PRECONDITION: "namenode:9870"
     env_file:
       - ./hadoop.env
-  
+
   datanode3:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: datanode3
@@ -53,7 +53,7 @@ services:
     container_name: spark-master
     depends_on:
       - namenode
-      - datanode1 
+      - datanode1
       - datanode2
       - datanode3
     ports:
@@ -151,6 +151,8 @@ services:
       - xpack.security.enabled=false
       - "discovery.type=single-node"
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    networks:
+      - es-net
 
   kibana:
     image: docker.elastic.co/kibana/kibana:7.15.1
@@ -162,6 +164,8 @@ services:
       ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
     depends_on:
       - elasticsearch
+    networks:
+      - es-net
 
 #  airflow-webserver:
 #    image: apache/airflow:2.0.0
@@ -206,8 +210,13 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+      POSTGRES_INITDB_ARGS: --auth-host=trust
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+      - ./src/init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh
+    ports:
+      - "5432:5432"
     healthcheck:
       test: [ "CMD", "pg_isready", "-U", "airflow" ]
       interval: 5s
@@ -215,7 +224,6 @@ services:
     restart: always
     networks:
       - es-net
-
   redis:
     image: redis:latest
     container_name: airflow-redis
@@ -253,7 +261,11 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW_CONN_POSTGRES_DEFAULT=postgres://airflow:airflow@postgres:5432/airflow
+
     volumes:
+      - ./src:/opt/airflow/src
+      - ./airflow:/opt/airflow
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
@@ -278,7 +290,10 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW_CONN_POSTGRES_DEFAULT=postgres://airflow:airflow@postgres:5432/airflow
     volumes:
+      - ./src:/opt/airflow/src
+      - ./airflow:/opt/airflow
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
@@ -303,7 +318,10 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW_CONN_POSTGRES_DEFAULT=postgres://airflow:airflow@postgres:5432/airflow
     volumes:
+      - ./src:/opt/airflow/src
+      - ./airflow:/opt/airflow
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
@@ -335,6 +353,7 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW_CONN_POSTGRES_DEFAULT=postgres://airflow:airflow@postgres:5432/airflow
       - _AIRFLOW_DB_UPGRADE=true
       - _AIRFLOW_WWW_USER_CREATE=true
     volumes:
@@ -359,8 +378,73 @@ services:
       networks:
         - es-net
 
+  minio:
+    image: minio/minio
+    ports:
+      - "9005:9000"
+      - "9002:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - es-net
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    depends_on:
+      - postgres
+      - minio
+    ports:
+      - "5005:5000"
+    environment:
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+#    command: mlflow server --backend-store-uri file:///mlflow-data --default-artifact-root file:///mlflow-artifacts --host 0.0.0.0
+    command: mlflow server --backend-store-uri file:///mlflow-data --default-artifact-root s3://mlflow/ --host 0.0.0.0
+    volumes:
+      - ./mlflow/data:/mlflow-data
+    networks:
+      - es-net
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - 5050:80
+    depends_on:
+      - postgres
+    networks:
+      - es-net
 
+  fastapi:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+    depends_on:
+      - elasticsearch
+      - postgres
+    restart: always
+    volumes:
+      - ./src:/opt/airflow/src
+      - ./airflow/cache:/opt/airflow/cache
+    environment:
+      DATABASE_URL: postgresql://airflow:airflow@airflow-postgres:5432/ptpm
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    networks:
+      - es-net
 volumes:
   esdata:
   hadoop_namenode:
@@ -368,6 +452,7 @@ volumes:
   hadoop_datanode2:
   hadoop_datanode3:
   postgres-db-volume:
+  minio-data:
 
 networks:
   es-net:

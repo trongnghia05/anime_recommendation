@@ -10,7 +10,7 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAnime, setSelectedAnime] = useState(null);
-  const [userId, setUserId] = useState('user123'); // user ID mặc định
+  const [userId, setUserId] = useState('9'); // user ID mặc định
 
   // Thay đổi page handler
   const navigateTo = (page, anime = null) => {

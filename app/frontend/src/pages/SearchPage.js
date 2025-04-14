@@ -2,17 +2,62 @@ import React, { useState, useEffect } from 'react';
 import AnimeCard from '../components/AnimeCard';
 import { FALLBACK_IMAGE } from '../constants/Images';
 
+const API_BASE_URL = 'http://localhost:8000'; // API base URL
+
 const SearchPage = ({ query, navigateTo, userId }) => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [animeGenres, setAnimeGenres] = useState({}); // Lưu trữ quan hệ giữa anime ID và thể loại
 
-  // Giả lập gọi API tìm kiếm
   useEffect(() => {
     const fetchSearchResults = async () => {
+      setLoading(true);
+
       try {
-        // // Khi làm, gọi API ở đây
+        if (query && query.trim() !== '') {
+          try {
+            const response = await fetch(`${API_BASE_URL}/search/suggestions?q=${encodeURIComponent(query)}&limit=20`);
+
+            if (response.ok) {
+              const data = await response.json();
+
+              if (data.suggestions && data.suggestions.length > 0) {
+                const uniqueCategories = new Set();
+                const genreMap = {};
+
+                const searchResults = data.suggestions.map(item => {
+                  if (item.Genres && item.Genres.length > 0) {
+                    const genres = item.Genres.map(g => g.toLowerCase());
+                    genreMap[item.MAL_ID] = genres;
+
+                    genres.forEach(genre => uniqueCategories.add(genre));
+                  }
+
+                  return {
+                    id: item.MAL_ID.toString(),
+                    title: item.Name,
+                    image: FALLBACK_IMAGE,
+                    category: item.Genres && item.Genres.length > 0
+                      ? item.Genres[0].toLowerCase()
+                      : 'unknown'
+                  };
+                });
+
+                setResults(searchResults);
+                setCategories(Array.from(uniqueCategories).sort());
+                setAnimeGenres(genreMap);
+                setLoading(false);
+                return;
+              }
+            }
+          } catch (apiError) {
+            console.error("API error:", apiError);
+          }
+        }
+
+        // Fallback: Sử dụng dữ liệu mẫu
         const searchResults = [
           {
             id: 'search-1',
@@ -64,8 +109,21 @@ const SearchPage = ({ query, navigateTo, userId }) => {
           }
         ];
 
+        // Mock data cho genreMap với dữ liệu mẫu
+        const mockGenreMap = {
+          'search-1': ['action', 'adventure'],
+          'search-2': ['comedy', 'slice of life'],
+          'search-3': ['drama', 'romance'],
+          'search-4': ['fantasy', 'magic'],
+          'search-5': ['action', 'sci-fi'],
+          'search-6': ['comedy', 'school'],
+          'search-7': ['drama', 'psychological'],
+          'search-8': ['fantasy', 'adventure']
+        };
+
         setResults(searchResults);
-        setCategories(['action', 'comedy', 'drama', 'fantasy']);
+        setCategories(['action', 'comedy', 'drama', 'fantasy', 'adventure', 'romance', 'sci-fi', 'slice of life', 'school', 'psychological', 'magic']);
+        setAnimeGenres(mockGenreMap);
         setLoading(false);
       } catch (error) {
         console.error("Lỗi khi tìm kiếm:", error);
@@ -76,9 +134,18 @@ const SearchPage = ({ query, navigateTo, userId }) => {
     fetchSearchResults();
   }, [query, userId]);
 
+  // Cải thiện hàm lọc để kiểm tra anime có thể loại đã chọn không
   const filteredResults = selectedCategory === 'all'
     ? results
-    : results.filter(item => item.category === selectedCategory);
+    : results.filter(item => {
+        // Kiểm tra trong animeGenres
+        const genres = animeGenres[item.id];
+        if (genres && Array.isArray(genres)) {
+          return genres.includes(selectedCategory);
+        }
+        // Fallback về category nếu không có trong animeGenres
+        return item.category === selectedCategory;
+      });
 
   if (loading) {
     return <div className="text-center py-10">Đang tìm kiếm "{query}"...</div>;

@@ -65,7 +65,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 apk update
 apk add make automake gcc g++ subversion python3-dev nano
-pip3 install numpy venv-pack
+pip3 install numpy venv-pack flask
 '
 
 # Fix Python version issue in Spark worker

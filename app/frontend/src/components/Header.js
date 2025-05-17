@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:8000'; // API base URL
+const RECOMMENDATION_API_URL = 'http://localhost:5000/recommend';
 
 // Mock data for suggestion fallback
 const MOCK_SUGGESTIONS = [
@@ -16,75 +17,109 @@ const Header = ({ searchQuery, setSearchQuery, userId, setUserId, navigateTo }) 
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [useApiSearch, setUseApiSearch] = useState(true); // Toggle between API and mock data
+  const [hasClickedSearchBox, setHasClickedSearchBox] = useState(false);
 
   // Function to load mock suggestions (renamed to avoid "use" prefix)
   const loadMockSuggestions = () => {
-    console.log(`Fetching suggestions for user: ${userId}`);
+    console.log(`Fetching mock suggestions for user: ${userId}`);
     setSuggestions(MOCK_SUGGESTIONS);
     setLoading(false);
   };
 
-  // Fetch search suggestions from API or use mock data
+  // Fetch recommendations when the search box is clicked
   useEffect(() => {
-    if (searchQuery.trim().length === 0) {
-      setSuggestions([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-
-    // Clear previous timeout if there was one
-    let timeoutId;
-
-    if (useApiSearch) {
-      // Define the API fetch function
-      const fetchSuggestions = async () => {
+    if (hasClickedSearchBox) {
+      const fetchRecommendations = async () => {
+        setLoading(true);
         try {
-          const response = await fetch(`${API_BASE_URL}/search/suggestions?q=${encodeURIComponent(searchQuery)}&limit=5`);
-
+          const response = await fetch(
+            `${RECOMMENDATION_API_URL}?user_id=${userId}&include_metadata=true`
+          );
           if (response.ok) {
             const data = await response.json();
-
-            // Transform API response to match the expected format
-            const formattedSuggestions = data.suggestions.map((item, index) => ({
-              id: item.MAL_ID.toString() || index + 1,
-              title: item.Name || "Unknown"
+            // Assuming the API returns an array of recommendations with a 'title' property
+            const formattedRecommendations = data.map((item, index) => ({
+              id: item.id || index + 1, // Adjust based on your API response
+              title: item.title || "Recommended Item" // Adjust based on your API response
             }));
-            setSuggestions(formattedSuggestions);
+            setSuggestions(formattedRecommendations);
           } else {
-            console.error('Error fetching suggestions:', response.statusText);
-            // Fallback to mock data if API fails
+            console.error('Error fetching recommendations:', response.statusText);
             setTimeout(loadMockSuggestions, 300);
           }
         } catch (error) {
-          console.error('Failed to fetch suggestions:', error);
-          // Fallback to mock data if API fails
+          console.error('Failed to fetch recommendations:', error);
           setTimeout(loadMockSuggestions, 300);
         } finally {
           setLoading(false);
         }
       };
 
-      // Debounce the API call
-      timeoutId = setTimeout(fetchSuggestions, 300);
-    } else {
-      // Use mock data (original behavior)
-      timeoutId = setTimeout(loadMockSuggestions, 300);
+      fetchRecommendations();
+      setHasClickedSearchBox(false); // Reset the flag after fetching
     }
+  }, [userId, hasClickedSearchBox]);
 
-    // Cleanup function to clear timeout on unmount or when dependencies change
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+  // Fetch search suggestions from API or use mock data based on search query
+  useEffect(() => {
+    if (!hasClickedSearchBox && searchQuery.trim().length > 0) {
+      setSuggestions([]);
+      setLoading(true);
+
+      let timeoutId;
+
+      if (useApiSearch) {
+        const fetchSearchSuggestions = async () => {
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/search/suggestions?q=${encodeURIComponent(searchQuery)}&limit=5`
+            );
+
+            if (response.ok) {
+              const data = await response.json();
+              const formattedSuggestions = data.suggestions.map((item, index) => ({
+                id: item.MAL_ID.toString() || index + 1,
+                title: item.Name || "Unknown"
+              }));
+              setSuggestions(formattedSuggestions);
+            } else {
+              console.error('Error fetching search suggestions:', response.statusText);
+              setTimeout(loadMockSuggestions, 300);
+            }
+          } catch (error) {
+            console.error('Failed to fetch search suggestions:', error);
+            setTimeout(loadMockSuggestions, 300);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        timeoutId = setTimeout(fetchSearchSuggestions, 300);
+      } else {
+        timeoutId = setTimeout(loadMockSuggestions, 300);
       }
-    };
-  }, [searchQuery, userId, useApiSearch]);
+
+      return () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
+    } else if (!hasClickedSearchBox && searchQuery.trim().length === 0) {
+      setSuggestions([]);
+      setLoading(false);
+    }
+  }, [searchQuery, userId, useApiSearch, hasClickedSearchBox]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     navigateTo('search');
     setShowSuggestions(false);
+  };
+
+  const handleSearchBoxClick = () => {
+    setShowSuggestions(true);
+    setHasClickedSearchBox(true);
+    setSearchQuery(''); // Clear the search query when the box is clicked
   };
 
   // Function to toggle between API and mock data (for testing)
@@ -111,7 +146,7 @@ const Header = ({ searchQuery, setSearchQuery, userId, setUserId, navigateTo }) 
                   placeholder="Tìm kiếm anime..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => setShowSuggestions(true)}
+                  onFocus={handleSearchBoxClick}
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button type="submit" className="absolute left-3 top-2.5 text-gray-500">
@@ -122,7 +157,7 @@ const Header = ({ searchQuery, setSearchQuery, userId, setUserId, navigateTo }) 
               {showSuggestions && (
                 <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg">
                   {loading ? (
-                    <div className="p-3 text-gray-500 text-center">Đang tìm kiếm...</div>
+                    <div className="p-3 text-gray-500 text-center">Đang tải gợi ý...</div>
                   ) : (
                     <>
                       {suggestions.length > 0 ? (
@@ -141,8 +176,10 @@ const Header = ({ searchQuery, setSearchQuery, userId, setUserId, navigateTo }) 
                             </li>
                           ))}
                         </ul>
-                      ) : searchQuery.trim().length > 0 ? (
+                      ) : !hasClickedSearchBox && searchQuery.trim().length > 0 ? (
                         <div className="p-3 text-gray-500 text-center">Không tìm thấy kết quả</div>
+                      ) : hasClickedSearchBox && suggestions.length === 0 ? (
+                        <div className="p-3 text-gray-500 text-center">Không có gợi ý</div>
                       ) : null}
                     </>
                   )}

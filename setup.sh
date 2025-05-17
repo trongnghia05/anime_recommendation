@@ -18,7 +18,7 @@ mkdir -p app/data
 # fi
 
 # Start the system
-cd app && docker-compose up -d
+cd app && docker compose up -d
 
 # Wait for services to be ready
 echo "Waiting for services to be ready..."

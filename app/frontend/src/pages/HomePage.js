@@ -6,6 +6,7 @@ const API_ENDPOINTS = {
   CONTINUE_WATCHING: 'http://localhost:8000/recommend/continue_watching',
   TRENDING: 'http://localhost:8000/recommend/trending',
   TOP_RATE: 'http://localhost:8000/recommend/top_rate',
+  SEARCH_SUGGESTIONS: 'http://localhost:5000/recommend',
   RECOMMENDED: 'http://localhost:8000/recommend/because_you_watch'
 };
 
@@ -136,6 +137,24 @@ const HomePage = ({ navigateTo, userId }) => {
     } catch (error) {
       console.error("Lỗi khi tải đề xuất anime:", error);
       return getFallbackRecommendedData();
+    }
+  };
+
+  const fetchSearchSuggestionsOnFocus = async () => {
+    try {
+      const userIdToFetch = userId || 100;
+      const searchUrl = `${API_ENDPOINTS.SEARCH_SUGGESTIONS}?user_id=${userIdToFetch}&include_metadata=true`;
+      const response = await fetch(searchUrl);
+
+      if (!response.ok) {
+        console.error('Lỗi khi tải gợi ý tìm kiếm');
+        return;
+      }
+
+      const data = await response.json();
+      console.log('Dữ liệu gợi ý tìm kiếm:', data);
+    } catch (error) {
+      console.error("Lỗi khi tải gợi ý tìm kiếm:", error);
     }
   };
 
@@ -294,6 +313,13 @@ const HomePage = ({ navigateTo, userId }) => {
 
   return (
     <div>
+      {/* Example of a search input */}
+      <input
+        type="text"
+        placeholder="Tìm kiếm anime..."
+        onFocus={fetchSearchSuggestionsOnFocus}
+      />
+
       <AnimeSection
         title="Tiếp tục xem"
         animes={state.continueWatching}

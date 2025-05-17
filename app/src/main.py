@@ -2,13 +2,16 @@ import os
 import json
 import pandas as pd
 import psycopg2
+import mlflow
+import mlflow.pyfunc
+import mlflow.spark
+
+from mlflow.tracking import MlflowClient
 from elasticsearch import Elasticsearch
 from fastapi import FastAPI, HTTPException, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import mlflow
-from mlflow.tracking import MlflowClient
 
 # Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://airflow:airflow@postgres:5432/ptpm")
@@ -97,7 +100,7 @@ def reload_model(data: dict = Body(...)):
 
         if model_type == 0:
             global model_home
-            model_home = mlflow.pyfunc.load_model(model_uri)
+            model_home = mlflow.spark.load_model(model_uri)
         else:
             global model_similar
             model_similar = mlflow.pyfunc.load_model(model_uri)

@@ -5,3 +5,4 @@ elasticsearch
 mlflow==2.17.2
 boto3==1.37.28
 pyspark
+flask-cors

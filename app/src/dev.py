@@ -5,6 +5,7 @@ from pyspark.sql.functions import col, explode
 import time
 import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import threading
 import atexit
 
@@ -12,6 +13,7 @@ spark = None
 best_model = None
 anime_df = None
 app = Flask(__name__)
+CORS(app)
 
 
 def init_spark():

@@ -38,9 +38,9 @@ const Header = ({ searchQuery, setSearchQuery, userId, setUserId, navigateTo }) 
           if (response.ok) {
             const data = await response.json();
             // Assuming the API returns an array of recommendations with a 'title' property
-            const formattedRecommendations = data.map((item, index) => ({
-              id: item.id || index + 1, // Adjust based on your API response
-              title: item.title || "Recommended Item" // Adjust based on your API response
+            const formattedRecommendations = data.recommendations.map((item, index) => ({
+              id: item.anime_id.toString() || index + 1, // Adjust based on your API response
+              title: item.Name || "Recommended Item" // Adjust based on your API response
             }));
             setSuggestions(formattedRecommendations);
           } else {

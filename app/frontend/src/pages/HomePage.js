@@ -141,43 +141,44 @@ const HomePage = ({ navigateTo, userId }) => {
 
   // Dữ liệu mẫu cho phần Tiếp tục xem khi API lỗi
   const getFallbackContinueWatchingData = () => {
-    return [
-      {
-        id: 'continue-1',
-        title: 'Shin Cậu bé bút chì - Tập 1',
-        image: FALLBACK_IMAGE,
-        episodeNumber: 1,
-        updatedAt: "Vừa xem"
-      },
-      {
-        id: 'continue-2',
-        title: 'Shin Cậu bé bút chì - Tập 2',
-        image: FALLBACK_IMAGE,
-        episodeNumber: 2,
-        updatedAt: "Vừa xem"
-      },
-      {
-        id: 'continue-3',
-        title: 'Shin Cậu bé bút chì - Tập 3',
-        image: FALLBACK_IMAGE,
-        episodeNumber: 3,
-        updatedAt: "Vừa xem"
-      },
-      {
-        id: 'continue-4',
-        title: 'Shin Cậu bé bút chì - Tập 4',
-        image: FALLBACK_IMAGE,
-        episodeNumber: 4,
-        updatedAt: "Vừa xem"
-      },
-      {
-        id: 'continue-5',
-        title: 'Shin Cậu bé bút chì - Tập 5',
-        image: FALLBACK_IMAGE,
-        episodeNumber: 5,
-        updatedAt: "Vừa xem"
-      }
-    ];
+    return []
+    // return [
+    //   {
+    //     id: 'continue-1',
+    //     title: 'Shin Cậu bé bút chì - Tập 1',
+    //     image: FALLBACK_IMAGE,
+    //     episodeNumber: 1,
+    //     updatedAt: "Vừa xem"
+    //   },
+    //   {
+    //     id: 'continue-2',
+    //     title: 'Shin Cậu bé bút chì - Tập 2',
+    //     image: FALLBACK_IMAGE,
+    //     episodeNumber: 2,
+    //     updatedAt: "Vừa xem"
+    //   },
+    //   {
+    //     id: 'continue-3',
+    //     title: 'Shin Cậu bé bút chì - Tập 3',
+    //     image: FALLBACK_IMAGE,
+    //     episodeNumber: 3,
+    //     updatedAt: "Vừa xem"
+    //   },
+    //   {
+    //     id: 'continue-4',
+    //     title: 'Shin Cậu bé bút chì - Tập 4',
+    //     image: FALLBACK_IMAGE,
+    //     episodeNumber: 4,
+    //     updatedAt: "Vừa xem"
+    //   },
+    //   {
+    //     id: 'continue-5',
+    //     title: 'Shin Cậu bé bút chì - Tập 5',
+    //     image: FALLBACK_IMAGE,
+    //     episodeNumber: 5,
+    //     updatedAt: "Vừa xem"
+    //   }
+    // ];
   };
 
   // Dữ liệu mẫu cho phần Đang thịnh hành
@@ -294,12 +295,15 @@ const HomePage = ({ navigateTo, userId }) => {
 
   return (
     <div>
-      <AnimeSection
-        title="Tiếp tục xem"
-        animes={state.continueWatching}
-        navigateTo={navigateTo}
-        icon="🕒"
-      />
+      {/* Chỉ hiển thị phần "Tiếp tục xem" khi có dữ liệu */}
+      {state.continueWatching.length > 0 && (
+        <AnimeSection
+          title="Tiếp tục xem"
+          animes={state.continueWatching}
+          navigateTo={navigateTo}
+          icon="🕒"
+        />
+      )}
       <AnimeSection
         title="Đang thịnh hành"
         animes={state.trending}

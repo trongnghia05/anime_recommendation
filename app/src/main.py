@@ -5,6 +5,8 @@ import psycopg2
 import mlflow
 import mlflow.pyfunc
 import mlflow.spark
+import logging
+from datetime import datetime
 
 from mlflow.tracking import MlflowClient
 from elasticsearch import Elasticsearch
@@ -13,8 +15,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
+# Thiết lập logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://airflow:airflow@postgres:5432/ptpm")
+MODEL_INFO_FILE = os.getenv("MODEL_INFO_FILE", "/tmp/model_info.json")
 
 # Initialize FastAPI
 app = FastAPI(
@@ -64,9 +74,174 @@ class SimilarAnimeResponse(BaseModel):
     similar_anime: List[AnimeItem]
 
 
+class ModelInfo(BaseModel):
+    model_name: str
+    model_type: int  # 0: home, 1: similar
+    model_uri: str
+    version: str
+    timestamp: datetime
+
+
+# Quản lý thông tin model
+class ModelManager:
+    def __init__(self, model_info_file=MODEL_INFO_FILE):
+        self.model_info_file = model_info_file
+        self.model_info = self._load_model_info()
+
+    def _load_model_info(self) -> Dict[str, Any]:
+        """Tải thông tin model gần nhất từ file JSON"""
+        try:
+            if os.path.exists(self.model_info_file):
+                with open(self.model_info_file, 'r') as f:
+                    model_info = json.load(f)
+                logger.info(f"Loaded model info: {model_info}")
+                return model_info
+            else:
+                logger.info(f"Model info file not found at {self.model_info_file}. Creating new.")
+                return {"models": {}}
+        except Exception as e:
+            logger.error(f"Error loading model info: {str(e)}")
+            return {"models": {}}
+
+    def save_model_info(self, model_type: int, model_name: str, model_uri: str, version: str):
+        """Lưu thông tin model mới"""
+        if "models" not in self.model_info:
+            self.model_info["models"] = {}
+
+        # Chuyển đổi model_type thành string key
+        type_key = "home" if model_type == 0 else "similar"
+
+        # Lưu thông tin model
+        self.model_info["models"][type_key] = {
+            "model_name": model_name,
+            "model_type": model_type,
+            "model_uri": model_uri,
+            "version": version,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # Ghi ra file
+        try:
+            with open(self.model_info_file, 'w') as f:
+                json.dump(self.model_info, f, indent=4)
+            logger.info(f"Saved model info to {self.model_info_file}")
+        except Exception as e:
+            logger.error(f"Error saving model info: {str(e)}")
+
+    def get_latest_model(self, model_type: int) -> Optional[Dict[str, Any]]:
+        """Lấy thông tin model gần nhất theo loại"""
+        type_key = "home" if model_type == 0 else "similar"
+
+        if "models" in self.model_info and type_key in self.model_info["models"]:
+            return self.model_info["models"][type_key]
+
+        return None
+
+
+# Khởi tạo Model Manager
+model_manager = ModelManager()
+
+
+def get_popular_anime():
+    """Lấy danh sách anime người dùng đang xem dở"""
+    with pg_conn.cursor() as cur:
+        sql = """
+            SELECT
+                anime_with_synopsis."MAL_ID" as id,
+                anime_with_synopsis."Name" as name,
+                anime.popularity
+            FROM
+                animelist
+            INNER JOIN
+                anime
+                ON animelist.anime_id = anime.mal_id
+            INNER JOIN
+                anime_with_synopsis
+                ON anime_with_synopsis."MAL_ID" = animelist.id
+            ORDER BY anime.popularity DESC
+            LIMIT 10;
+        """
+        cur.execute(sql)
+        animes = cur.fetchall()
+
+        if not animes:
+            raise HTTPException(
+                status_code=404,
+                detail="No anime found for this user."
+            )
+
+        result = []
+        for anime in animes:
+            result.append({
+                "anime_id": anime[0],
+                "name": anime[1],
+                "popularity": anime[2]
+            })
+
+        return result
+
+
 # --------------------------------------------------
 # Model Management
 # --------------------------------------------------
+def load_model_from_mlflow(model_name: str, model_version: str):
+    """Tải model từ MLflow registry"""
+    try:
+        # Thiết lập thông tin xác thực S3/MinIO
+        os.environ['AWS_ACCESS_KEY_ID'] = 'minioadmin'
+        os.environ['AWS_SECRET_ACCESS_KEY'] = 'minioadmin'
+        os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://minio:9000'
+
+        # Kết nối tới MLflow
+        mlflow.set_tracking_uri("http://mlflow:5000")
+
+        # Tạo URI model
+        model_uri = f"models:/{model_name}/{model_version}"
+
+        # Tải model
+        return mlflow.pyfunc.load_model(model_uri), model_uri
+    except Exception as e:
+        logger.error(f"Error loading model from MLflow: {str(e)}")
+        return None, None
+
+
+def load_latest_models_on_startup():
+    """Tải các model gần nhất khi khởi động"""
+    global model_home, model_similar
+
+    try:
+        # Tải model home
+        home_model_info = model_manager.get_latest_model(0)
+        if home_model_info:
+            logger.info(f"Loading home model: {home_model_info['model_name']} v{home_model_info['version']}")
+            model, _ = load_model_from_mlflow(home_model_info['model_name'], home_model_info['version'])
+            if model:
+                model_home = model
+                logger.info("Home model loaded successfully")
+            else:
+                logger.warning("Failed to load home model")
+
+        # Tải model similar
+        similar_model_info = model_manager.get_latest_model(1)
+        if similar_model_info:
+            logger.info(f"Loading similar model: {similar_model_info['model_name']} v{similar_model_info['version']}")
+            model, _ = load_model_from_mlflow(similar_model_info['model_name'], similar_model_info['version'])
+            if model:
+                model_similar = model
+                logger.info("Similar model loaded successfully")
+            else:
+                logger.warning("Failed to load similar model")
+
+    except Exception as e:
+        logger.error(f"Error loading models on startup: {str(e)}")
+
+
+# Tải models khi khởi động
+@app.on_event("startup")
+def startup_event():
+    load_latest_models_on_startup()
+
+
 @app.post("/reload", tags=["Model Management"])
 def reload_model(data: dict = Body(...)):
     """Tải lại model từ MLflow registry"""
@@ -95,22 +270,33 @@ def reload_model(data: dict = Body(...)):
 
         # Tải model và lưu vào biến toàn cục
         model_uri = f"models:/{model_name}/{model_version.version}"
-        print("model_uri:", model_uri)
-        print("model_type:", model_type)
+        logger.info(f"Loading model: {model_name} v{model_version.version}")
+        logger.info(f"Model URI: {model_uri}")
+        logger.info(f"Model Type: {model_type}")
+
+        loaded_model = mlflow.pyfunc.load_model(model_uri)
 
         if model_type == 0:
             global model_home
-            model_home = mlflow.spark.load_model(model_uri)
+            model_home = loaded_model
         else:
             global model_similar
-            model_similar = mlflow.pyfunc.load_model(model_uri)
+            model_similar = loaded_model
 
-        # Lưu metadata để /metadata endpoint có thể truy cập
+        # Lưu metadata cho model
+        model_manager.save_model_info(
+            model_type=model_type,
+            model_name=model_name,
+            model_uri=model_uri,
+            version=model_version.version
+        )
+
+        # Tương thích ngược - lưu metadata để /metadata endpoint có thể truy cập
         with open("/tmp/model_metadata.json", "w") as f:
             json.dump({
                 "model_name": model_name,
                 "version": model_version.version,
-                "timestamp": data.get("timestamp", "")
+                "timestamp": data.get("timestamp", datetime.now().isoformat())
             }, f)
 
         return {
@@ -119,7 +305,7 @@ def reload_model(data: dict = Body(...)):
         }
 
     except Exception as e:
-        print(e)
+        logger.error(f"Error reloading model: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -127,14 +313,34 @@ def reload_model(data: dict = Body(...)):
 def get_model_metadata():
     """Lấy thông tin về model hiện tại"""
     try:
-        with open("/tmp/model_metadata.json", "r") as f:
-            metadata = f.read()
-        return metadata
+        # Ưu tiên lấy thông tin từ file tương thích cũ
+        if os.path.exists("/tmp/model_metadata.json"):
+            with open("/tmp/model_metadata.json", "r") as f:
+                metadata = json.load(f)
+            return metadata
+
+        # Nếu không có, lấy từ model_manager
+        models_info = {
+            "home": model_manager.get_latest_model(0),
+            "similar": model_manager.get_latest_model(1)
+        }
+
+        if not models_info["home"] and not models_info["similar"]:
+            return {"status": "No models loaded"}
+
+        return models_info
+
     except Exception as e:
         raise HTTPException(
             status_code=HTTPS_STATUS_CODES["SERVER_INTERNAL_ERROR"],
             detail=str(e),
         )
+
+
+@app.get("/models/info", tags=["Model Management"])
+def get_all_models_info():
+    """Lấy thông tin về tất cả các model đã lưu"""
+    return model_manager.model_info
 
 
 # --------------------------------------------------
@@ -257,10 +463,24 @@ def get_recommendations_for_user(user_id: int, limit: int = 10):
     global model_home
 
     if model_home is None:
-        raise HTTPException(
-            status_code=HTTPS_STATUS_CODES["SERVER_INTERNAL_ERROR"],
-            detail="Model not loaded. Call /reload first."
-        )
+        # Nếu model chưa được tải, thử tải model gần nhất
+        latest_model_info = model_manager.get_latest_model(0)
+        if latest_model_info:
+            logger.info(
+                f"Trying to load latest home model: {latest_model_info['model_name']} v{latest_model_info['version']}")
+            model, _ = load_model_from_mlflow(latest_model_info['model_name'], latest_model_info['version'])
+            if model:
+                model_home = model
+            else:
+                raise HTTPException(
+                    status_code=HTTPS_STATUS_CODES["SERVER_INTERNAL_ERROR"],
+                    detail="Failed to load home model. Please call /reload first."
+                )
+        else:
+            raise HTTPException(
+                status_code=HTTPS_STATUS_CODES["SERVER_INTERNAL_ERROR"],
+                detail="Model not loaded. Call /reload first."
+            )
 
     try:
         input_data = pd.DataFrame([{
@@ -273,10 +493,16 @@ def get_recommendations_for_user(user_id: int, limit: int = 10):
 
         # recommendations là list của list, lấy phần tử đầu tiên
         if recommendations and len(recommendations) > 0:
-            return {
-                "user_id": user_id,
-                "recommendations": recommendations[0]
-            }
+            if recommendations[0][0]["explanation"] == "Đề xuất dựa trên các yếu tố khác":
+                return {
+                    "user_id": user_id,
+                    "recommendations": get_popular_anime()
+                }
+            else:
+                return {
+                    "user_id": user_id,
+                    "recommendations": recommendations[0]
+                }
         else:
             return {
                 "user_id": user_id,
@@ -305,7 +531,19 @@ def get_similar_animes(
     global model_similar
 
     if model_similar is None:
-        raise HTTPException(status_code=503, detail="Mô hình chưa được tải. Vui lòng tải mô hình trước.")
+        # Nếu model chưa được tải, thử tải model gần nhất
+        latest_model_info = model_manager.get_latest_model(1)
+        if latest_model_info:
+            logger.info(
+                f"Trying to load latest similar model: {latest_model_info['model_name']} v{latest_model_info['version']}")
+            model, _ = load_model_from_mlflow(latest_model_info['model_name'], latest_model_info['version'])
+            if model:
+                model_similar = model
+            else:
+                raise HTTPException(status_code=503,
+                                    detail="Không thể tải mô hình tương tự. Vui lòng tải mô hình trước.")
+        else:
+            raise HTTPException(status_code=503, detail="Mô hình chưa được tải. Vui lòng tải mô hình trước.")
 
     try:
         result = model_similar.predict({
@@ -388,15 +626,20 @@ def get_trending_recommendations(user_id: int):
     """Lấy danh sách anime đang thịnh hành"""
     with pg_conn.cursor() as cur:
         sql = """
-        SELECT 
-            anime_with_synopsis."MAL_ID" AS id,
-            anime_with_synopsis."Name" AS title,
-            anime_with_synopsis."Score" AS score
-        FROM 
-            anime_with_synopsis
-        ORDER BY 
-            score DESC
-        LIMIT 5;
+            SELECT DISTINCT ON (anime.watching)
+                anime_with_synopsis."MAL_ID" as id,
+                anime_with_synopsis."Name" as name,
+                anime.watching
+            FROM
+                animelist
+            INNER JOIN
+                anime
+                ON animelist.anime_id = anime.mal_id
+            INNER JOIN
+                anime_with_synopsis
+                ON anime_with_synopsis."MAL_ID" = animelist.id
+            ORDER BY anime.watching DESC, anime_with_synopsis."MAL_ID" ASC
+            LIMIT 5;
         """
         cur.execute(sql)
         animes = cur.fetchall()
@@ -429,27 +672,18 @@ def get_top_rated_recommendations(user_id: int):
     """Lấy danh sách anime có đánh giá cao nhất"""
     with pg_conn.cursor() as cur:
         sql = """
-        WITH top AS (
             SELECT 
-                anime_id, 
-                ROUND(AVG(rating), 1) AS rating
+                a."MAL_ID" AS id,
+                a."Name" AS title,
+                anime.score AS rating
             FROM 
-                animelist
-            GROUP BY 
-                anime_id
+                anime
+            INNER JOIN
+                anime_with_synopsis a
+                ON anime.mal_id = a."MAL_ID"
             ORDER BY 
-                SUM(rating) DESC
-        )
-        SELECT 
-            a."MAL_ID" AS id,
-            a."Name" AS title,
-            top.rating AS rating
-        FROM 
-            top
-        INNER JOIN 
-            anime_with_synopsis a 
-            ON top.anime_id = a."MAL_ID"
-        LIMIT 5;
+                anime.score DESC
+            LIMIT 5;
         """
         cur.execute(sql)
         animes = cur.fetchall()
@@ -469,6 +703,8 @@ def get_top_rated_recommendations(user_id: int):
             })
 
         return {"user_id": user_id, "top_rate": result}
+
+
 
 
 @app.get("/recommend/top_rate/{user_id}", tags=["Recommendations"], include_in_schema=False)

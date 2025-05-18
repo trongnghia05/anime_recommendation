@@ -19,6 +19,9 @@ sys.path.append('/opt/airflow')
 # Import các module cần thiết
 from src.model.recommender import ContentBase
 from src.mlflow_utils import setup_mlflow, log_model_to_mlflow, evaluate_and_log_metrics
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
+import psycopg2
 
 # Cấu hình logging
 logging.basicConfig(
@@ -36,6 +39,41 @@ REGISTERED_MODEL_NAME = os.environ.get('REGISTERED_MODEL_NAME', 'anime_recommend
 API_SERVERS = json.loads(os.environ.get('API_SERVERS', '["http://fastapi:8000"]'))
 
 
+def create_database_if_not_exists():
+    try:
+        # Kết nối đến database mặc định postgres
+        conn_default = psycopg2.connect(
+            host="postgres",
+            database="postgres",  # Kết nối đến database mặc định
+            user="airflow",
+            password="airflow",
+            port=5432
+        )
+        conn_default.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cursor = conn_default.cursor()
+
+        # Kiểm tra xem database ptpm có tồn tại chưa
+        cursor.execute("SELECT 1 FROM pg_database WHERE datname='ptpm'")
+        exists = cursor.fetchone()
+
+        # Nếu database chưa tồn tại, tiến hành tạo mới
+        if not exists:
+            logger.info("Database 'ptpm' không tồn tại. Đang tạo database mới...")
+            cursor.execute("CREATE DATABASE ptpm")
+            logger.info("Đã tạo database 'ptpm' thành công!")
+        else:
+            logger.info("Database 'ptpm' đã tồn tại.")
+
+        cursor.close()
+        conn_default.close()
+
+    except Exception as e:
+        logger.error(f"Lỗi khi kiểm tra/tạo database: {e}")
+        raise
+
+
+# Gọi hàm kiểm tra và tạo database trước khi kết nối đến database ptpm
+create_database_if_not_exists()
 
 # Đối số mặc định cho DAG
 default_args = {
@@ -48,7 +86,6 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-import psycopg2
 
 conn = psycopg2.connect(
     host="postgres",

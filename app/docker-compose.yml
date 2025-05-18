@@ -358,6 +358,8 @@ services:
       - _AIRFLOW_WWW_USER_CREATE=true
     volumes:
       - ./airflow:/sources
+    depends_on:
+      - postgres
     networks:
       - es-net
 
@@ -394,6 +396,21 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - es-net
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/mlflow;
+      /usr/bin/mc policy set public myminio/mlflow;
+      exit 0;
+      "
     networks:
       - es-net
 
